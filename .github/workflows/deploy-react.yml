@@ -1,0 +1,53 @@
+name: Deploy Vite React to EC2
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (Vite)
+        run: npm run build
+
+      # ✅ dist 폴더가 제대로 생겼는지 확인(실습용)
+      - name: Show dist
+        run: ls -al dist
+
+      # dist -> EC2로 rsync 전송
+      - name: Deploy dist to EC2 (rsync)
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_PRIVATE_KEY }}
+          source: "dist/*"
+          target: "/var/www/vite-app"
+          strip_components: 1
+
+      # Nginx reload (권한/설정 반영)
+      - name: Reload Nginx
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_PRIVATE_KEY }}
+          script: |
+            set -e
+            sudo nginx -t
+            sudo systemctl reload nginx
+            echo "✅ Deploy done"
