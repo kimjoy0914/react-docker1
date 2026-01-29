@@ -1,4 +1,4 @@
-name: Deploy Vite React to EC2 (Git Pull on EC2)
+name: Deploy Vite React to EC2 (Git Pull + Dev Server)
 
 on:
   push:
@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: SSH Deploy on EC2 (git pull -> build -> deploy)
+      - name: SSH Deploy on EC2 (git pull -> npm ci -> run dev)
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -18,10 +18,11 @@ jobs:
           script: |
             set -e
 
-            # 1) (서버에 소스가 없으면) 최초 1회 clone 후 이후부터는 pull
             APP_DIR=/home/ubuntu/vite-react-app
             REPO_URL="https://github.com/kimjoy0914/react-docker1.git"
+            DEV_PORT=5173
 
+            # 1) 최초 1회 clone, 이후 pull
             if [ ! -d "$APP_DIR/.git" ]; then
               sudo mkdir -p $APP_DIR
               sudo chown -R $USER:$USER $APP_DIR
@@ -29,21 +30,24 @@ jobs:
             fi
 
             cd $APP_DIR
-
-            # 2) 최신 코드 받기
             git checkout main
             git pull origin main
 
-            # 3) 의존성 설치 + 빌드
+            # 2) 의존성 설치
             npm ci
-            npm run build
 
-            # 4) dist -> Nginx 배포 경로로 반영
-            sudo rm -rf /var/www/vite-app/*
-            sudo cp -r dist/* /var/www/vite-app/
+            # 3) 기존 dev 서버 종료(포트 기준으로 kill)
+            #    실행 중이 아니어도 실패하지 않도록 || true
+            sudo fuser -k -n tcp ${DEV_PORT} || true
 
-            # 5) Nginx 설정 체크 + reload
-            sudo nginx -t
-            sudo systemctl reload nginx
+            # 4) dev 서버 백그라운드 기동
+            #    --host 0.0.0.0 : 외부 접속 허용
+            #    로그는 dev.log로 남김
+            nohup npm run dev -- --host 0.0.0.0 --port ${DEV_PORT} > dev.log 2>&1 &
 
-            echo "✅ Deploy done (git pull on EC2)"
+            # 5) 기동 확인(로그/포트 체크)
+            sleep 2
+            sudo fuser -n tcp ${DEV_PORT} || (echo "❌ Dev server not running" && exit 1)
+
+            echo "✅ Dev server started on port ${DEV_PORT}"
+            echo "✅ Log: $APP_DIR/dev.log"
