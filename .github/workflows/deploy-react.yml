@@ -41,7 +41,7 @@ jobs:
 
       # Nginx reload (권한/설정 반영)
       - name: Reload Nginx
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
