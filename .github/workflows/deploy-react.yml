@@ -1,46 +1,15 @@
-name: Deploy Vite React to EC2
+name: Deploy Vite React to EC2 (Git Pull on EC2)
 
 on:
   push:
     branches: [ "main" ]
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build (Vite)
-        run: npm run build
-
-      # ✅ dist 폴더가 제대로 생겼는지 확인(실습용)
-      - name: Show dist
-        run: ls -al dist
-
-      # dist -> EC2로 rsync 전송
-      - name: Deploy dist to EC2 (rsync)
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USERNAME }}
-          key: ${{ secrets.EC2_PRIVATE_KEY }}
-          source: "dist/*"
-          target: "/var/www/vite-app"
-          strip_components: 1
-
-      # Nginx reload (권한/설정 반영)
-      - name: Reload Nginx
+      - name: SSH Deploy on EC2 (git pull -> build -> deploy)
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -48,6 +17,33 @@ jobs:
           key: ${{ secrets.EC2_PRIVATE_KEY }}
           script: |
             set -e
+
+            # 1) (서버에 소스가 없으면) 최초 1회 clone 후 이후부터는 pull
+            APP_DIR=/home/ubuntu/vite-react-app
+            REPO_URL="https://github.com/kimjoy0914/react-docker1.git"
+
+            if [ ! -d "$APP_DIR/.git" ]; then
+              sudo mkdir -p $APP_DIR
+              sudo chown -R $USER:$USER $APP_DIR
+              git clone $REPO_URL $APP_DIR
+            fi
+
+            cd $APP_DIR
+
+            # 2) 최신 코드 받기
+            git checkout main
+            git pull origin main
+
+            # 3) 의존성 설치 + 빌드
+            npm ci
+            npm run build
+
+            # 4) dist -> Nginx 배포 경로로 반영
+            sudo rm -rf /var/www/vite-app/*
+            sudo cp -r dist/* /var/www/vite-app/
+
+            # 5) Nginx 설정 체크 + reload
             sudo nginx -t
             sudo systemctl reload nginx
-            echo "✅ Deploy done"
+
+            echo "✅ Deploy done (git pull on EC2)"
